@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>procmon live</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+      #chartWrap { width: 100%; height: 460px; }
+      canvas { width: 100% !important; height: 100% !important; display:block; }
+      .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#eee; margin-right:8px; }
+    </style>  
+  </head>
+  <body>
+    <h1>procmon live</h1>
+    <div>
+      <span class="badge" id="peakcpu">peak CPU: –</span>
+      <span class="badge" id="peakram">peak RAM: –</span>
+    </div>
+    <div class="row">
+      <div id="chartWrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+      const chart = new Chart(document.getElementById('chart').getContext('2d'), {
+        type: 'line',
+        data: { datasets: [
+          { label: 'CPU % (total)', data: [], parsing:false, pointRadius:0, tension:0, yAxisID:'yCPU' },
+          { label: 'RAM (MiB)',     data: [], parsing:false, pointRadius:0, tension:0, yAxisID:'yRAM' },
+        ]},
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          scales: {
+            x:   { type:'linear', title:{display:true,text:'Elapsed (s)'} },
+            yCPU:{ position:'left',  title:{display:true,text:'CPU %'} },
+            yRAM:{ position:'right', title:{display:true,text:'MiB'}, grid:{drawOnChartArea:false} }
+          },
+          interaction: { mode:'nearest', intersect:false }
+        }
+      });
+
+      const peakcpuEl = document.getElementById('peakcpu');
+      const peakramEl = document.getElementById('peakram');
+
+      let peakCPU = 0, peakMiB = 0;
+
+      function addPoint(s) {
+        const x   = s.elapsed / 1e9;
+        const cpu = s.cpu_percent;
+        const mib = s.rss_bytes / (1024*1024);
+
+        chart.data.datasets[0].data.push({x, y: cpu});
+        chart.data.datasets[1].data.push({x, y: mib});
+
+        if (cpu > peakCPU) { peakCPU = cpu; peakcpuEl.textContent = 'peak CPU: ' + peakCPU.toFixed(1) + '%'; }
+        if (mib > peakMiB) { peakMiB = mib; peakramEl.textContent = 'peak RAM: ' + peakMiB.toFixed(1) + ' MiB'; }
+      }
+
+      // Load history
+      fetch('/api/samples').then(r => r.json()).then(arr => {
+        arr.forEach(addPoint);
+        chart.update();
+      });
+
+      // Live stream (no status badge)
+      const es = new EventSource('/events');
+      es.addEventListener('sample', ev => {
+        addPoint(JSON.parse(ev.data));
+        chart.update();
+      });
+      es.addEventListener('done', () => { es.close(); });
+    </script>  
+  </body>
+</html>
